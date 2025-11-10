@@ -1,5 +1,5 @@
 <?php
-/**
+/**6
  * Database Configuration for RMUTP Server
  * Host: shost.rmutp.ac.th
  */
@@ -23,3 +23,4 @@ if ($conn->connect_error) {
   die("Connection failed: " . $conn->connect_error);
 }
 ?>
+
