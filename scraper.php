@@ -10,253 +10,257 @@
 include "db.php";
 header('Content-Type: application/json; charset=utf-8');
 
-// รับ action จาก parameter
-$action = $_GET['action'] ?? 'news';
-$result = ['success' => false, 'message' => '', 'data' => []];
-
-/**
- * ฟังก์ชัน Scrape ข่าวจากเว็บคณะ
- */
-function scrapeNews($conn) {
-    $url = "https://eng.rmutp.ac.th/"; // ⚠️ ปรับ URL ให้ตรงกับเว็บจริง
-    $result = ['items' => 0, 'errors' => []];
-    
-    try {
-        // ใช้ cURL ดึงข้อมูล
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        $html = curl_exec($ch);
-        
-        if(curl_errno($ch)) {
-            throw new Exception('cURL Error: ' . curl_error($ch));
-        }
-        curl_close($ch);
-        
-        // Parse HTML (ต้องติดตั้ง php-dom extension)
-        libxml_use_internal_errors(true);
-        $dom = new DOMDocument();
-        $dom->loadHTML($html);
-        libxml_clear_errors();
-        
-        $xpath = new DOMXPath($dom);
-        
-        // ⚠️ ปรับ XPath selector ให้ตรงกับโครงสร้าง HTML ของเว็บจริง
-        // ตัวอย่างนี้สมมติว่าข่าวอยู่ใน <div class="news-item">
-        $newsNodes = $xpath->query("//div[contains(@class, 'news-item')]");
-        
-        foreach($newsNodes as $node) {
-            // ดึงข้อมูลจาก HTML elements
-            $titleNode = $xpath->query(".//h3 | .//h2", $node)->item(0);
-            $linkNode = $xpath->query(".//a", $node)->item(0);
-            $dateNode = $xpath->query(".//*[contains(@class, 'date')]", $node)->item(0);
-            $summaryNode = $xpath->query(".//p", $node)->item(0);
-            
-            $title = $titleNode ? trim($titleNode->textContent) : 'No title';
-            $link = $linkNode ? $linkNode->getAttribute('href') : '';
-            $date = $dateNode ? trim($dateNode->textContent) : date('Y-m-d');
-            $summary = $summaryNode ? trim($summaryNode->textContent) : '';
-            
-            // แปลง relative URL เป็น absolute
-            if(!empty($link) && !preg_match('/^https?:\/\//', $link)) {
-                $link = rtrim($url, '/') . '/' . ltrim($link, '/');
-            }
-            
-            // แปลงรูปแบบวันที่ (ถ้าจำเป็น)
-            $date = parseThaiDate($date);
-            
-            // เช็คว่ามีข่าวนี้ในฐานข้อมูลแล้วหรือยัง
-            $check = $conn->prepare("SELECT id FROM news WHERE url = ? OR title = ?");
-            $check->bind_param("ss", $link, $title);
-            $check->execute();
-            $check->store_result();
-            
-            if($check->num_rows == 0) {
-                // Insert ข่าวใหม่
-                $stmt = $conn->prepare("INSERT INTO news (title, summary, url, date_post, source) VALUES (?, ?, ?, ?, 'scraped')");
-                $stmt->bind_param("ssss", $title, $summary, $link, $date);
-                if($stmt->execute()) {
-                    $result['items']++;
-                }
-                $stmt->close();
-            }
-            $check->close();
-        }
-        
-        return $result;
-        
-    } catch(Exception $e) {
-        $result['errors'][] = $e->getMessage();
-        return $result;
+// ===== Helper Functions =====
+function ensureRequirements() {
+    if(!function_exists('curl_init')) {
+        throw new Exception('PHP cURL extension ยังไม่เปิดใช้งาน');
     }
 }
 
+function httpGet($url) {
+    ensureRequirements();
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT => 'EngBot-Scraper/1.0'
+    ]);
+    $response = curl_exec($ch);
+    if(curl_errno($ch)) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        throw new Exception('cURL Error: ' . $err);
+    }
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if($status >= 400 || !$response) {
+        throw new Exception("HTTP Status $status จาก $url");
+    }
+    return $response;
+}
+
+function cleanText($html) {
+    $text = strip_tags($html);
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return trim(preg_replace('/\s+/', ' ', $text));
+}
+
+function upsertNews($conn, $title, $summary, $url, $date, $categoryLabel = '') {
+    $source = $categoryLabel ? ('scraped:' . $categoryLabel) : 'scraped';
+    $check = $conn->prepare("SELECT id FROM news WHERE url = ? LIMIT 1");
+    $check->bind_param("s", $url);
+    $check->execute();
+    $check->store_result();
+    if($check->num_rows > 0) {
+        $check->bind_result($existingId);
+        $check->fetch();
+        $update = $conn->prepare("UPDATE news SET title=?, summary=?, date_post=?, source=?, is_active=1 WHERE id=?");
+        $update->bind_param("ssssi", $title, $summary, $date, $source, $existingId);
+        $update->execute();
+        $update->close();
+    } else {
+        $insert = $conn->prepare("INSERT INTO news (title, summary, url, date_post, source, is_active) VALUES (?, ?, ?, ?, ?, 1)");
+        $insert->bind_param("sssss", $title, $summary, $url, $date, $source);
+        $insert->execute();
+        $insert->close();
+    }
+    $check->close();
+}
+
 /**
- * ฟังก์ชัน Scrape ข้อมูลบุคลากร
+ * ดึงข่าวผ่าน WordPress REST API
+ */
+function fetchCategoryLookup() {
+    static $cache = null;
+    if($cache !== null) {
+        return $cache;
+    }
+
+    $cache = ['name' => [], 'slug' => []];
+    try {
+        $endpoint = 'https://eng.rmutp.ac.th/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug';
+        $json = httpGet($endpoint);
+        $cats = json_decode($json, true);
+        if(is_array($cats)) {
+            foreach($cats as $cat) {
+                $id = $cat['id'] ?? null;
+                if(!$id) continue;
+                if(!empty($cat['name'])) {
+                    $cache['name'][mb_strtolower($cat['name'])] = $id;
+                }
+                if(!empty($cat['slug'])) {
+                    $cache['slug'][mb_strtolower($cat['slug'])] = $id;
+                }
+            }
+        }
+    } catch(Exception $e) {
+        // ถ้าดึงหมวดหมู่ไม่ได้ให้ปล่อยให้ฟังก์ชันหลักเป็นคนแจ้ง error
+    }
+
+    return $cache;
+}
+
+function resolveCategoryIds(array $candidates) {
+    $lookup = fetchCategoryLookup();
+    $ids = [];
+    foreach($candidates as $candidate) {
+        $key = mb_strtolower($candidate);
+        if(isset($lookup['name'][$key])) {
+            $ids[] = $lookup['name'][$key];
+        }
+        if(isset($lookup['slug'][$key])) {
+            $ids[] = $lookup['slug'][$key];
+        }
+    }
+    return array_values(array_unique(array_filter($ids)));
+}
+
+function scrapeNews($conn, $categoryKey = 'all') {
+    $configMap = [
+        'pr' => [
+            'label' => 'ข่าวประชาสัมพันธ์',
+            'matches' => ['ข่าวประชาสัมพันธ์', 'public-relations', 'ประชาสัมพันธ์']
+        ],
+        'activities' => [
+            'label' => 'กิจกรรมคณะวิศวกรรมศาสตร์',
+            'matches' => ['กิจกรรมคณะวิศวกรรมศาสตร์', 'กิจกรรมคณะ', 'faculty-activities']
+        ],
+    ];
+
+    if($categoryKey !== 'all' && !isset($configMap[$categoryKey])) {
+        throw new Exception('ไม่รู้จักหมวดหมู่ข่าวที่ระบุ');
+    }
+
+    $targetConfig = $categoryKey === 'all' ? null : $configMap[$categoryKey];
+    $categoryIds = $targetConfig ? resolveCategoryIds($targetConfig['matches']) : [];
+
+    $categoryLabel = $targetConfig['label'] ?? 'ทั้งหมด';
+    $result = [
+        'items' => 0,
+        'errors' => [],
+        'warnings' => [],
+        'category' => $categoryLabel
+    ];
+
+    try {
+        $query = [
+            'per_page' => 10,
+            '_fields' => 'id,date,title.rendered,excerpt.rendered,link,categories'
+        ];
+
+        if(!empty($categoryIds)) {
+            $query['categories'] = implode(',', $categoryIds);
+        } elseif($targetConfig) {
+            // ถ้ายังหา id ไม่เจอให้แจ้งเตือน แต่ยังคงดึงข้อมูลทั้งหมดเพื่อลองกรองภายหลัง
+            $result['warnings'][] = 'ไม่พบรหัสหมวดหมู่สำหรับ ' . $targetConfig['label'] . ' (ดึงทั้งหมดแล้วกรองภายหลัง)';
+        }
+
+        $endpoint = 'https://eng.rmutp.ac.th/wp-json/wp/v2/posts?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $json = httpGet($endpoint);
+        $posts = json_decode($json, true);
+        if(!is_array($posts)) {
+            throw new Exception('รูปแบบข้อมูลข่าวไม่ถูกต้อง');
+        }
+
+        foreach($posts as $post) {
+            $postCategories = $post['categories'] ?? [];
+            if($targetConfig && !empty($categoryIds)) {
+                if(empty(array_intersect($postCategories, $categoryIds))) {
+                    continue;
+                }
+            }
+
+            $title = cleanText($post['title']['rendered'] ?? '');
+            $summary = cleanText($post['excerpt']['rendered'] ?? '');
+            $link = $post['link'] ?? '';
+            $date = isset($post['date']) ? date('Y-m-d', strtotime($post['date'])) : date('Y-m-d');
+
+            if(!$title || !$link) continue;
+
+            upsertNews($conn, $title, $summary, $link, $date, $categoryLabel);
+            $result['items']++;
+        }
+    } catch(Exception $e) {
+        $result['errors'][] = $e->getMessage();
+    }
+    return $result;
+}
+
+/**
+ * (Template) ดึงข้อมูลบุคลากร - ยังต้องปรับ selector/endpoint ให้ตรงกับเว็บจริง
  */
 function scrapeStaff($conn) {
-    $url = "https://eng.rmutp.ac.th/staff"; // ⚠️ ปรับ URL
-    $result = ['items' => 0, 'errors' => []];
-    
-    try {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        $html = curl_exec($ch);
-        
-        if(curl_errno($ch)) {
-            throw new Exception('cURL Error: ' . curl_error($ch));
-        }
-        curl_close($ch);
-        
-        libxml_use_internal_errors(true);
-        $dom = new DOMDocument();
-        $dom->loadHTML($html);
-        libxml_clear_errors();
-        
-        $xpath = new DOMXPath($dom);
-        
-        // ⚠️ ปรับ selector ตามโครงสร้าง HTML จริง
-        $staffNodes = $xpath->query("//div[contains(@class, 'staff-card')]");
-        
-        foreach($staffNodes as $node) {
-            $nameNode = $xpath->query(".//h3 | .//h4", $node)->item(0);
-            $titleNode = $xpath->query(".//*[contains(@class, 'title')]", $node)->item(0);
-            $deptNode = $xpath->query(".//*[contains(@class, 'department')]", $node)->item(0);
-            $emailNode = $xpath->query(".//a[contains(@href, 'mailto:')]", $node)->item(0);
-            $phoneNode = $xpath->query(".//*[contains(@class, 'phone')]", $node)->item(0);
-            
-            $fullname = $nameNode ? trim($nameNode->textContent) : '';
-            $title = $titleNode ? trim($titleNode->textContent) : '';
-            $department = $deptNode ? trim($deptNode->textContent) : '';
-            $email = $emailNode ? trim($emailNode->textContent) : '';
-            $phone = $phoneNode ? trim($phoneNode->textContent) : '';
-            
-            if(empty($fullname)) continue;
-            
-            // เช็คว่ามีข้อมูลนี้แล้วหรือยัง
-            $check = $conn->prepare("SELECT id FROM staff WHERE fullname = ?");
-            $check->bind_param("s", $fullname);
-            $check->execute();
-            $check->store_result();
-            
-            if($check->num_rows == 0) {
-                $stmt = $conn->prepare("INSERT INTO staff (fullname, title, department, email, phone) VALUES (?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssss", $fullname, $title, $department, $email, $phone);
-                if($stmt->execute()) {
-                    $result['items']++;
-                }
-                $stmt->close();
-            } else {
-                // Update ข้อมูลที่มีอยู่
-                $stmt = $conn->prepare("UPDATE staff SET title=?, department=?, email=?, phone=? WHERE fullname=?");
-                $stmt->bind_param("sssss", $title, $department, $email, $phone, $fullname);
-                $stmt->execute();
-                $stmt->close();
-            }
-            $check->close();
-        }
-        
-        return $result;
-        
-    } catch(Exception $e) {
-        $result['errors'][] = $e->getMessage();
-        return $result;
-    }
-}
-
-/**
- * ฟังก์ชันแปลงวันที่ภาษาไทยเป็นรูปแบบ Y-m-d
- */
-function parseThaiDate($dateStr) {
-    // ตัวอย่างการแปลง - ปรับให้เหมาะกับรูปแบบวันที่ของเว็บ
-    $thaiMonths = [
-        'มกราคม' => '01', 'กุมภาพันธ์' => '02', 'มีนาคม' => '03',
-        'เมษายน' => '04', 'พฤษภาคม' => '05', 'มิถุนายน' => '06',
-        'กรกฎาคม' => '07', 'สิงหาคม' => '08', 'กันยายน' => '09',
-        'ตุลาคม' => '10', 'พฤศจิกายน' => '11', 'ธันวาคม' => '12',
-        'ม.ค.' => '01', 'ก.พ.' => '02', 'มี.ค.' => '03',
-        'เม.ย.' => '04', 'พ.ค.' => '05', 'มิ.ย.' => '06',
-        'ก.ค.' => '07', 'ส.ค.' => '08', 'ก.ย.' => '09',
-        'ต.ค.' => '10', 'พ.ย.' => '11', 'ธ.ค.' => '12'
-    ];
-    
-    foreach($thaiMonths as $thai => $num) {
-        if(mb_strpos($dateStr, $thai) !== false) {
-            $dateStr = str_replace($thai, '-' . $num . '-', $dateStr);
-            break;
-        }
-    }
-    
-    // ลบตัวอักษรภาษาไทยที่เหลือ
-    $dateStr = preg_replace('/[ก-๙]/u', '', $dateStr);
-    $dateStr = preg_replace('/\s+/', '-', trim($dateStr));
-    
-    // พยายามแปลงเป็น timestamp
-    $timestamp = strtotime($dateStr);
-    if($timestamp) {
-        return date('Y-m-d', $timestamp);
-    }
-    
-    return date('Y-m-d'); // fallback เป็นวันปัจจุบัน
+    $result = ['items' => 0, 'errors' => ['ยังไม่ได้กำหนดแหล่งข้อมูลบุคลากร']];
+    // TODO: ปรับให้ดึงข้อมูลจาก REST API หรือ HTML ของเว็บจริง
+    return $result;
 }
 
 // ===== Main Execution =====
-switch($action) {
-    case 'news':
-        $scrapeResult = scrapeNews($conn);
-        $result['success'] = true;
-        $result['message'] = "Scraped {$scrapeResult['items']} news items";
-        $result['data'] = $scrapeResult;
-        break;
-        
-    case 'staff':
-        $scrapeResult = scrapeStaff($conn);
-        $result['success'] = true;
-        $result['message'] = "Scraped {$scrapeResult['items']} staff members";
-        $result['data'] = $scrapeResult;
-        break;
-        
-    case 'all':
-        $newsResult = scrapeNews($conn);
-        $staffResult = scrapeStaff($conn);
-        $result['success'] = true;
-        $result['message'] = "Scraped {$newsResult['items']} news and {$staffResult['items']} staff";
-        $result['data'] = ['news' => $newsResult, 'staff' => $staffResult];
-        break;
-        
-    default:
-        $result['message'] = "Invalid action. Use: ?action=news, ?action=staff, or ?action=all";
+$action = $_GET['action'] ?? 'news';
+$result = ['success' => false, 'message' => '', 'data' => []];
+
+try {
+    switch($action) {
+        case 'news':
+            $categoryKey = $_GET['category'] ?? 'all';
+            $news = scrapeNews($conn, $categoryKey);
+            $result['success'] = empty($news['errors']);
+            $result['message'] = empty($news['errors'])
+                ? "อัปเดตข่าว ({$news['category']}) สำเร็จ {$news['items']} รายการ"
+                : 'ดึงข่าวไม่ครบถ้วน';
+            $result['data'] = $news;
+            break;
+
+        case 'staff':
+            $staff = scrapeStaff($conn);
+            $result['success'] = empty($staff['errors']);
+            $result['message'] = empty($staff['errors']) ? "อัปเดตบุคลากรสำเร็จ {$staff['items']} รายการ" : 'ยังไม่พร้อมดึงข้อมูลบุคลากร';
+            $result['data'] = $staff;
+            break;
+
+        case 'all':
+            $news = scrapeNews($conn);
+            $staff = scrapeStaff($conn);
+            $success = empty($news['errors']) && empty($staff['errors']);
+            $result['success'] = $success;
+            $result['message'] = $success ? "อัปเดตข่าว {$news['items']} และบุคลากร {$staff['items']} รายการ" : 'บางส่วนดึงข้อมูลไม่สำเร็จ';
+            $result['data'] = ['news' => $news, 'staff' => $staff];
+            break;
+
+        default:
+            throw new Exception('Invalid action. Use: news, staff, all');
+    }
+} catch(Exception $e) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'message' => $e->getMessage(),
+        'data' => []
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    exit;
 }
 
 echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
-/*
- * ===== คำแนะนำการใช้งาน =====
- * 
- * 1. เรียกใช้ Manual:
- *    http://localhost/eng_chatbot_api/scraper.php?action=news
- *    http://localhost/eng_chatbot_api/scraper.php?action=staff
- *    http://localhost/eng_chatbot_api/scraper.php?action=all
- * 
- * 2. ตั้ง Cron Job (Linux/Mac):
- *    # รันทุก 6 ชั่วโมง
- *    0 */6 * * * php /path/to/scraper.php?action=all
- * 
- * 3. ตั้ง Task Scheduler (Windows):
- *    - Program: C:\xampp\php\php.exe
- *    - Arguments: C:\xampp\htdocs\eng_chatbot_api\scraper.php
- *    - Trigger: ทุก 6 ชั่วโมง
- * 
- * 4. เรียกใช้ผ่าน Webhook:
- *    สามารถเรียก scraper.php จาก GitHub Actions, Zapier, หรือ IFTTT
- * 
- * ⚠️ สำคัญ: ต้องปรับ XPath selector ให้ตรงกับโครงสร้าง HTML ของเว็บจริง
- */
+// ===== คำแนะนำการใช้งาน =====
+// 1. เรียกใช้ผ่านเว็บ:
+//    - http://localhost/eng_chatbot_api/scraper.php?action=news
+//    - http://localhost/eng_chatbot_api/scraper.php?action=staff
+//    - http://localhost/eng_chatbot_api/scraper.php?action=all
+//
+// 2. ตั้ง Cron Job (ตัวอย่าง Linux/Mac):
+//    - รันทุก 6 ชั่วโมง: 0 */6 * * * php /path/to/scraper.php action=all
+//
+// 3. ตั้ง Task Scheduler (Windows):
+//    - Program: C:\xampp\php\php.exe
+//    - Arguments: C:\xampp\htdocs\eng_chatbot_api\scraper.php
+//    - Trigger: ทุก 6 ชั่วโมง
+//
+// 4. เรียกใช้ผ่าน Webhook:
+//    - อาจสั่งจาก GitHub Actions, Zapier, หรือ IFTTT
+//
+// ⚠️ สำคัญ: ต้องปรับ XPath selector ให้ตรงกับโครงสร้าง HTML ของเว็บจริง
 ?>
