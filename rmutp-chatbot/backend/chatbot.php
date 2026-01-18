@@ -20,6 +20,61 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/db.php';
 
+// AI Helper Class - Inline (no separate file needed)
+class AIHelper {
+    private $apiUrl;
+    private $timeout;
+    private $enabled;
+    
+    public function __construct($apiUrl = 'http://localhost:5000', $timeout = 3) {
+        $this->apiUrl = rtrim($apiUrl, '/');
+        $this->timeout = $timeout;
+        $this->enabled = $this->checkHealth();
+    }
+    
+    public function checkHealth() {
+        try {
+            $ch = curl_init($this->apiUrl . '/health');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode === 200) {
+                $data = json_decode($response, true);
+                return isset($data['status']) && $data['status'] === 'healthy';
+            }
+            return false;
+        } catch (Exception $e) { return false; }
+    }
+    
+    public function predictIntent($question) {
+        if (!$this->enabled || empty(trim($question))) return null;
+        try {
+            $ch = curl_init($this->apiUrl . '/predict');
+            $payload = json_encode(['question' => $question], JSON_UNESCAPED_UNICODE);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($httpCode !== 200) return null;
+            $result = json_decode($response, true);
+            return $result && isset($result['intent']) ? ['intent' => $result['intent'], 'confidence' => floatval($result['confidence']), 'alternatives' => $result['alternatives'] ?? []] : null;
+        } catch (Exception $e) { return null; }
+    }
+    
+    public function isEnabled() { return $this->enabled; }
+    
+    public function mapIntentToCategory($intent) {
+        $mapping = ['ask_tuition' => 'tuition', 'ask_staff' => 'staff', 'ask_admission' => 'admission', 'ask_loan' => 'loan', 'ask_department' => 'department', 'ask_facility' => 'facility', 'ask_grade' => 'grade', 'ask_news' => 'news', 'ask_contact' => 'contact', 'other' => null];
+        return $mapping[$intent] ?? null;
+    }
+}
+
 // Set CORS headers (allowlist)
 SecurityHelper::setCORSHeaders();
 
@@ -45,10 +100,12 @@ if (file_exists(__DIR__ . '/../.env')) {
 class Chatbot {
     private $db;
     private $startTime;
+    private $ai;
     
     public function __construct() {
         $this->db = getDB();
         $this->startTime = microtime(true);
+        $this->ai = new AIHelper('http://localhost:5000', 3);
     }
     
     /**
@@ -60,12 +117,49 @@ class Chatbot {
             return $this->error("Message cannot be empty");
         }
         
+        // ===== Phase 1: AI Intent Classification =====
+        // ใช้ AI ตรวจสอบ intent ก่อน (ถ้า AI เปิดใช้งาน)
+        $aiIntent = null;
+        $aiConfidence = 0;
+        
+        if ($this->ai->isEnabled()) {
+            $prediction = $this->ai->predictIntent($message);
+            if ($prediction && $prediction['confidence'] > 0.7) {
+                // AI มีความมั่นใจสูง (>70%)
+                $aiIntent = $prediction['intent'];
+                $aiConfidence = $prediction['confidence'];
+                error_log("AI Intent: {$aiIntent} (confidence: " . round($aiConfidence * 100, 2) . "%)");
+                
+                // ถ้า AI แนะนำให้ค้นหาข่าว
+                if ($aiIntent === 'ask_news') {
+                    $newsResults = $this->searchNews($message);
+                    if (!empty($newsResults)) {
+                        return $this->buildNewsResponse($sessionId, $message, $newsResults);
+                    }
+                }
+                
+                // ถ้า AI แนะนำให้ค้นหาบุคลากร
+                if ($aiIntent === 'ask_staff') {
+                    $staffResults = $this->searchStaff($message);
+                    if (!empty($staffResults)) {
+                        return $this->buildStaffResponse($sessionId, $message, $staffResults);
+                    }
+                }
+            }
+        }
+        
+        // ===== Phase 2: News Search (ถ้า AI ไม่แนะนำอื่น) =====
         // Check if asking about news/activities
         // แต่ถ้าถามเกี่ยวกับ "ชมรม", "จิตอาสา", "กิจกรรม", "แข่งขัน" ให้ไปค้นหา FAQ แทน (เพราะ FAQ มีข้อมูลเหล่านี้)
         $skipNews = (mb_stripos($message, 'ชมรม') !== false) || 
                     (mb_stripos($message, 'จิตอาสา') !== false) ||
                     (mb_stripos($message, 'กิจกรรม') !== false) ||
                     (mb_stripos($message, 'แข่งขัน') !== false);
+        
+        // ข้าม news search ถ้า AI บอกว่าไม่ใช่ ask_news และ confidence สูง
+        if ($aiIntent && $aiIntent !== 'ask_news' && $aiConfidence > 0.7) {
+            $skipNews = true;
+        }
         
         if (!$skipNews) {
             $newsResults = $this->searchNews($message);
@@ -74,17 +168,19 @@ class Chatbot {
             }
         }
         
-        // ===== กลยุทธ์การค้นหาคำตอบ FAQ (ใช้ LIKE Search เท่านั้น) =====
+        // ===== Phase 3: FAQ Search =====
         // ค้นหา FAQ ก่อน เพราะมีระบบ scoring ที่แม่นยำกว่า
         // ปิด FULLTEXT ชั่วคราว เพื่อให้ระบบใช้ LIKE search ที่มีการคำนวณคะแนนใน PHP
         // ข้อดี: ค้นหาได้หลากหลาย, มีระบบคะแนนแบบละเอียด, ควบคุมได้ง่าย
         $faqResults = $this->searchFAQBroad($message);
         error_log("handleChat: LIKE search returned " . count($faqResults) . " results for '$message'");
         
-        // ถ้า FAQ มี confidence ต่ำ (<40%) ให้ลองค้นหา staff
-        $checkStaff = empty($faqResults) || (isset($faqResults[0]) && floatval($faqResults[0]['relevance']) < 200);
+        // ถ้า FAQ มี confidence ต่ำ (<40%) หรือ AI แนะนำให้ค้นหา staff ให้ลองค้นหา staff
+        $checkStaff = empty($faqResults) || 
+                      (isset($faqResults[0]) && floatval($faqResults[0]['relevance']) < 200) ||
+                      ($aiIntent === 'ask_staff' && $aiConfidence > 0.7);
         
-        // ตรวจสอบว่าถามเกี่ยวกับบุคลากร/อาจารย์หรือไม่ (ถ้า FAQ ไม่ดีพอ)
+        // ===== Phase 4: Staff Search =====
         if ($checkStaff) {
             $staffResults = $this->searchStaff($message);
             if (!empty($staffResults)) {
@@ -92,11 +188,12 @@ class Chatbot {
             }
         }
         
-        // ===== สร้างคำตอบจากผลการค้นหา =====
+        // ===== Phase 5: Build FAQ Response (with AI Enhancement) =====
         if (!empty($faqResults)) {
             $bestMatch = $faqResults[0];
             
             // คำนวณ Confidence (ความมั่นใจ) จากคะแนน relevance
+            // ถ้ามี AI intent ที่ตรงกับ FAQ category ให้เพิ่ม confidence
             // คะแนนเต็ม 1000+ = Exact Match = 95% confidence
             // คะแนน 500+ = Phrase Match = 85% confidence
             // คะแนน 200-500 = Good Match = 60-80% confidence
@@ -104,6 +201,15 @@ class Chatbot {
             // คะแนน 50-100 = Weak Match = 20-40% confidence
             // คะแนน < 50 = Very Weak = < 20% confidence
             $rawScore = floatval($bestMatch['relevance']);
+            
+            // ปรับคะแนนถ้า AI สนับสนุน
+            if ($aiIntent && $aiConfidence > 0.7) {
+                $category = $this->ai->mapIntentToCategory($aiIntent);
+                if ($category && isset($bestMatch['category']) && $bestMatch['category'] === $category) {
+                    $rawScore *= 1.2; // เพิ่มคะแนน 20% ถ้า AI ยืนยัน
+                    error_log("AI confirmed category '{$category}', boosting score to {$rawScore}");
+                }
+            }
             
             if ($rawScore >= 1000) {
                 // Exact Match - ความมั่นใจสูงสุด 95%
