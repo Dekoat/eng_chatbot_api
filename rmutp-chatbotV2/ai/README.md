@@ -168,3 +168,5 @@ python ai/scripts/train_model.py
 - [PHASE1_SIMPLE_ML.md](../docs/PHASE1_SIMPLE_ML.md) - แผนงาน Phase 1
 - [AI_INTEGRATION_PLAN.md](../docs/AI_INTEGRATION_PLAN.md) - แผนภาพรวม
 - [THEORY.md](../docs/THEORY.md) - ทฤษฎี NLP & ML
+
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd c:\xampp\htdocs\rmutp-chatbotV2\ai\api; python app.py"

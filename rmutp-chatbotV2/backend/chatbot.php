@@ -250,10 +250,15 @@ class Chatbot {
             } else {
                 // Good confidence, return answer
                 $answer = $this->formatFAQAnswer($bestMatch);
+                
+                // แสดงเฉพาะคำถามแรกใน sources
+                $displayQuestion = explode('|', $bestMatch['question'])[0];
+                $displayQuestion = trim($displayQuestion);
+                
                 $sources = [[
                     'type' => 'faq',
                     'id' => $bestMatch['id'],
-                    'question' => $bestMatch['question']
+                    'question' => $displayQuestion
                 ]];
             }
         } else {
@@ -296,7 +301,11 @@ class Chatbot {
      * Format FAQ answer with university branding
      */
     private function formatFAQAnswer($faq) {
-        $answer = "💬 คำถาม: {$faq['question']}\n\n";
+        // แสดงเฉพาะคำถามแรก (ก่อน | ถ้ามี)
+        $displayQuestion = explode('|', $faq['question'])[0];
+        $displayQuestion = trim($displayQuestion);
+        
+        $answer = "💬 คำถาม: {$displayQuestion}\n\n";
         $answer .= str_repeat("─", 50) . "\n\n";
         
         // Format the actual answer
@@ -546,6 +555,39 @@ class Chatbot {
                     }
                 } else {
                     error_log("Intent NOT DETECTED: query=$queryIntent, faq=$faqIntent, Q: $question");
+                }
+                
+                // ===== [+600 pts] Department/Major Keyword Boost =====
+                // ถ้าผู้ใช้พูดถึงชื่อสาขาเฉพาะ ให้เพิ่มคะแนนมากถ้า FAQ มีชื่อสาขานั้นด้วย
+                $departments = [
+                    'ไฟฟ้า' => ['ไฟฟ้า', 'electrical', 'EE'],
+                    'คอมพิวเตอร์' => ['คอมพิวเตอร์', 'คอม', 'computer', 'CPE', 'CE'],
+                    'เครื่องกล' => ['เครื่องกล', 'mechanical', 'ME'],
+                    'อุตสาหการ' => ['อุตสาหการ', 'industrial', 'IE'],
+                    'เมคคาทรอนิกส์' => ['เมคคาทรอนิกส์', 'mechatronics'],
+                    'โยธา' => ['โยธา', 'civil'],
+                    'อิเล็กทรอนิกส์' => ['อิเล็กทรอนิกส์', 'โทรคมนาคม', 'electronics', 'ETE'],
+                ];
+                
+                foreach ($departments as $dept => $keywords_dept) {
+                    $queryHasDept = false;
+                    $faqHasDept = false;
+                    
+                    foreach ($keywords_dept as $kw) {
+                        if (mb_stripos($query, $kw) !== false) $queryHasDept = true;
+                        if (mb_stripos($question, $kw) !== false || mb_stripos($answer, $kw) !== false) $faqHasDept = true;
+                    }
+                    
+                    if ($queryHasDept && $faqHasDept) {
+                        // ทั้ง query และ FAQ พูดถึงสาขาเดียวกัน → เพิ่มคะแนนมาก
+                        $score += 600;
+                        error_log("Department MATCH: '$dept' found in both query and FAQ (Q: $question) +600");
+                        break;
+                    } elseif ($queryHasDept && !$faqHasDept) {
+                        // query พูดถึงสาขา แต่ FAQ ไม่มี → ลดคะแนน
+                        $score -= 300;
+                        error_log("Department MISMATCH: '$dept' in query but not in FAQ (Q: $question) -300");
+                    }
                 }
                 
                 // [300 pts] Normalized Phrase Match
@@ -1486,7 +1528,9 @@ class Chatbot {
      * List FAQs for browsing
      */
     public function listFAQs($limit = 500, $category = null) {
-        $sql = "SELECT id, question, category FROM faq WHERE is_active = 1";
+        // แสดงเฉพาะคำถามแรก (ก่อน |)
+        $sql = "SELECT id, SUBSTRING_INDEX(question, '|', 1) as question, category 
+                FROM faq WHERE is_active = 1";
         
         if ($category) {
             $sql .= " AND category = :category";
@@ -1502,7 +1546,13 @@ class Chatbot {
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         
         $stmt->execute();
-        return $stmt->fetchAll();
+        
+        // Trim whitespace จากคำถาม
+        $results = $stmt->fetchAll();
+        foreach ($results as &$row) {
+            $row['question'] = trim($row['question']);
+        }
+        return $results;
     }
     
     /**

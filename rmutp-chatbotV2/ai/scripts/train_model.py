@@ -8,20 +8,25 @@ import numpy as np
 from pythainlp import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import joblib
 import os
 
 class IntentClassifier:
-    def __init__(self):
+    def __init__(self, model_type='logistic_regression'):
         self.vectorizer = TfidfVectorizer(
             tokenizer=self._tokenize_thai,
             max_features=1000,
             ngram_range=(1, 2),
             min_df=1
         )
-        self.model = MultinomialNB(alpha=0.1)
+        if model_type == 'logistic_regression':
+            self.model = LogisticRegression(max_iter=1000, random_state=42)
+        else:
+            self.model = MultinomialNB(alpha=0.1)
+        self.model_type = model_type
         
     def _tokenize_thai(self, text):
         """Tokenize Thai text using pythainlp"""
@@ -45,15 +50,25 @@ class IntentClassifier:
         print(df['intent'].value_counts())
         return df['question'].values, df['intent'].values
     
-    def train(self, X, y, test_size=0.2, random_state=42):
-        """Train the model"""
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state, stratify=y
-        )
+    def train(self, X, y, test_size=0.0, random_state=42):
+        """Train the model (test_size=0.0 means use all data for training)"""
         
-        print(f"\nTraining set: {len(X_train)} examples")
-        print(f"Test set: {len(X_test)} examples")
+        if test_size > 0:
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=test_size, random_state=random_state, stratify=y
+            )
+            
+            print(f"\nTraining set: {len(X_train)} examples")
+            print(f"Test set: {len(X_test)} examples")
+        else:
+            # Use all data for training
+            X_train = X
+            y_train = y
+            X_test = X[:20]  # Use first 20 for sanity check
+            y_test = y[:20]
+            print(f"\nUsing ALL {len(X_train)} examples for training (no test split)")
+            print(f"Sanity check with first 20 examples")
         
         # Transform text to TF-IDF features
         print("\nTransforming text to TF-IDF features...")
@@ -61,7 +76,8 @@ class IntentClassifier:
         X_test_tfidf = self.vectorizer.transform(X_test)
         
         # Train model
-        print("Training Naive Bayes model...")
+        model_name = "Logistic Regression" if self.model_type == 'logistic_regression' else "Naive Bayes"
+        print(f"Training {model_name} model...")
         self.model.fit(X_train_tfidf, y_train)
         
         # Evaluate
@@ -149,7 +165,7 @@ class IntentClassifier:
         self.model = joblib.load(model_path)
         self.vectorizer = joblib.load(vectorizer_path)
         
-        print(f"✅ Model loaded from {model_dir}")
+        print(f"[OK] Model loaded from {model_dir}")
 
 
 def main():

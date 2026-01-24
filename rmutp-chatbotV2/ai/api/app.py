@@ -14,6 +14,102 @@ import logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.train_model import IntentClassifier
+import re
+
+# Keyword rules for hybrid prediction (Optimized v2)
+KEYWORD_RULES = {
+    # Contact - ต้องเช็คก่อน (เพราะมี "อาจารย์", "โทร" ที่ซ้ำกับ department)
+    'ask_contact': [
+        r'ติดต่อ', r'อีเมล', r'email', r'ที่อยู่',
+        r'เบอร์', r'โทร',  # "เบอร์โทร", "โทรศัพท์"
+    ],
+    
+    # Grade - ต้องเช็คก่อน admission (เพราะมี "สอบ" ที่ซ้ำกัน)
+    'ask_grade': [
+        r'เกรด', r'ผลการเรียน', r'GPA',
+        r'ตกสอบ', r'สอบตก',  # "ถ้าสอบตกต้องทำยังไง"
+        r'ผลสอบ', r'เช็คเกรด', r'เช็ค.*ผล',  # "ดูผลสอบได้แล้วหรือยัง"
+    ],
+    
+    # Loan
+    'ask_loan': [
+        r'กยศ\.?', r'กรอ\.?', r'กู้', r'ทุนการศึกษา',
+        r'ทุน(?!การศึกษา)',  # "ทุน" แต่ไม่ต้องมี "การศึกษา" ก็ได้
+        r'ยื่น.*เอกสาร.*กู้', r'รายได้ครอบครัว',
+    ],
+    
+    # Tuition
+    'ask_tuition': [
+        r'ค่าเทอม', r'ค่าธรรมเนียม', r'ค่าใช้จ่าย', r'ค่าหนังสือ',
+        r'จ่ายเงิน', r'ชำระ', r'ผ่อน',
+        r'แพง', r'ถูก',  # "เรียนที่นี่แพงไหม"
+    ],
+    
+    # Facility - ต้องเช็คก่อน news (เพราะ "มี" อาจซ้ำกัน)
+    'ask_facility': [
+        r'ห้องแล็บ', r'ห้องปฏิบัติการ', r'อุปกรณ์', r'สถานที่', r'อาคาร', r'ห้องสมุด',
+        r'จอดรถ', r'ที่จอด',  # "มีที่จอดรถไหม"
+    ],
+    
+    # News
+    'ask_news': [
+        r'ข่าวสาร', r'กิจกรรม', r'อบรม', r'สัมมนา',
+        r'ข่าว(?!สาร)',  # "ข่าว" แต่ไม่ต้องมี "สาร" ก็ได้
+    ],
+    
+    # Department - เช็คหลังสุด (เพราะ "อาจารย์" อาจซ้ำกับ contact)
+    'ask_department': [
+        r'สาขา', r'ภาควิชา', r'คณะ',
+        r'วิศวะ.*เรียน', r'สาขา.*เรียน',  # "วิศวะไฟฟ้าเรียนอะไร"
+        r'อาจารย์(?!.*ติดต่อ)(?!.*โทร)(?!.*เบอร์)',  # "อาจารย์" แต่ไม่มี contact keywords
+    ],
+    
+    # Admission - เช็คหลังสุด (เพราะมี "สอบ" ที่อาจซ้ำกับ grade)
+    'ask_admission': [
+        r'TCAS', r'รับสมัคร', r'สมัครเข้า', r'Portfolio',
+        r'GPAX', r'GAT', r'PAT',
+        r'สอบเข้า', r'คะแนน.*สมัคร',
+    ],
+}
+
+def check_keywords(question):
+    """
+    Check if question matches keyword rules (case-insensitive)
+    เช็คตามลำดับความสำคัญ - คำที่เฉพาะเจาะจงก่อน
+    """
+    # เช็คคำที่เฉพาะเจาะจงมากก่อน
+    
+    # 1. สอบตก/ผลสอบ → ask_grade (ก่อน admission)
+    if re.search(r'สอบตก|ตกสอบ|ผลสอบ', question, re.IGNORECASE):
+        return ('ask_grade', 0.95)
+    
+    # 2. ติดต่อ+อาจารย์/เบอร์/โทร → ask_contact (ก่อน department)
+    if re.search(r'ติดต่อ|เบอร์|โทร', question, re.IGNORECASE):
+        return ('ask_contact', 0.95)
+    
+    # 3. ทุน → ask_loan
+    if re.search(r'ทุน|กยศ|กรอ|กู้', question, re.IGNORECASE):
+        return ('ask_loan', 0.95)
+    
+    # 4. จอดรถ → ask_facility
+    if re.search(r'จอด|ที่จอด', question, re.IGNORECASE):
+        return ('ask_facility', 0.95)
+    
+    # 5. ข่าว → ask_news
+    if re.search(r'ข่าว', question, re.IGNORECASE):
+        return ('ask_news', 0.95)
+    
+    # 6. วิศวะ/สาขา+เรียน → ask_department
+    if re.search(r'(วิศวะ|สาขา).*เรียน', question, re.IGNORECASE):
+        return ('ask_department', 0.95)
+    
+    # เช็คตาม KEYWORD_RULES แบบเดิม
+    for intent, patterns in KEYWORD_RULES.items():
+        for pattern in patterns:
+            if re.search(pattern, question, re.IGNORECASE):
+                return (intent, 0.95)
+    
+    return (None, 0)
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -39,7 +135,7 @@ logger = logging.getLogger(__name__)
 classifier = IntentClassifier()
 try:
     classifier.load_model()
-    logger.info("✅ Model loaded successfully")
+    logger.info("[OK] Model loaded successfully")
 except FileNotFoundError:
     logger.error("❌ Model not found! Please train the model first.")
     logger.error("Run: python scripts/train_model.py")
@@ -104,16 +200,30 @@ def predict():
                 'error': 'Question cannot be empty'
             }), 400
         
-        # Predict
+        # Hybrid approach: Try keywords first
+        rule_intent, rule_conf = check_keywords(question)
+        
+        if rule_intent:
+            # Keyword match found
+            alternatives = []
+            return jsonify({
+                'intent': rule_intent,
+                'confidence': rule_conf,
+                'method': 'rule',
+                'alternatives': alternatives,
+                'processing_time_ms': round((time.time() - start_time) * 1000, 2)
+            })
+        
+        # Use AI prediction if no keyword match
         result = classifier.predict(question)
+        result['method'] = 'ai'
         
         # Calculate processing time
-        processing_time = (time.time() - start_time) * 1000  # Convert to ms
+        processing_time = (time.time() - start_time) * 1000
         result['processing_time_ms'] = round(processing_time, 2)
         
         # Log prediction
-        logger.info(f"Question: {question}")
-        logger.info(f"Intent: {result['intent']} (confidence: {result['confidence']:.2%})")
+        logger.info(f"Question: {question} -> {result['intent']} ({result['confidence']:.2%}) [{result['method']}]")
         
         return jsonify(result)
     
@@ -187,4 +297,4 @@ if __name__ == '__main__':
     print("\nPress Ctrl+C to stop")
     print("="*70 + "\n")
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)
