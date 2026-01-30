@@ -1,0 +1,13 @@
+================================================================================
+FAQ WITH VERY SHORT ANSWERS (<50 chars) - NEED EXPANSION
+================================================================================
+
+FAQ #1 - ID: 317
+Department: jewelry_engineering
+Category: contact
+Question: เว็บไซต์ของสาขาคืออะไร
+Current Answer (28 chars): https://jmt.eng.rmutp.ac.th/
+Action: Expand to 100-300 chars
+
+--------------------------------------------------------------------------------
+
