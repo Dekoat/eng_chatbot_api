@@ -1,0 +1,13 @@
+=== CHATBOT FAQ TEST RESULT ===
+Date: 2026-02-10 (after AI retrain + DB fix)
+
+Primary Test:  598/598 PASS (100%)
+Variant Test:  659/659 PASS (100%)
+
+AI Model: 96.4% accuracy, 15 intents, 3615 training examples
+
+Fixes applied:
+- relatedCategories expanded (program→contact,admission | contact→about,facilities,general | etc.)
+- FAQ #155,#470,#535: added dept name to "ทำไมต้องเลือกเรียน" variant
+- FAQ #574,#576,#588,#589,#598: replaced SIME→สื่อสารอัจฉริยะ in short variants
+- AI model retrained with proper intent mapping
