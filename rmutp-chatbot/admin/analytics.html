@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Dashboard - RMUTP Chatbot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #F7F7F8;
+            min-height: 100vh;
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: #FFFFFF;
+            padding: 18px 24px;
+            border-radius: 12px;
+            border: 1px solid #E5E5E5;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-title svg {
+            width: 22px;
+            height: 22px;
+            stroke: #940032;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .header h1 {
+            color: #2D2D2D;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .header .nav-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 9px 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: inherit;
+            transition: all 0.15s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn svg {
+            width: 15px;
+            height: 15px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .btn-primary {
+            background: #940032;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #7a0028;
+            box-shadow: 0 2px 8px rgba(148, 0, 50, 0.2);
+        }
+
+        .btn-secondary {
+            background: #F7F7F8;
+            color: #2D2D2D;
+            border: 1px solid #E5E5E5;
+        }
+
+        .btn-secondary:hover {
+            background: #ECECF1;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card {
+            background: #FFFFFF;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #E5E5E5;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+            transition: box-shadow 0.2s;
+        }
+
+        .summary-card:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+
+        .summary-card .icon-wrap {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .summary-card .icon-wrap svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .summary-card .label {
+            color: #6B6B6B;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        .summary-card .value {
+            color: #2D2D2D;
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .summary-card .sub-value {
+            color: #059669;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: #FFFFFF;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #E5E5E5;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+
+        .card-title {
+            color: #2D2D2D;
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title svg {
+            width: 18px;
+            height: 18px;
+            stroke: #940032;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .card-full {
+            grid-column: 1 / -1;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #F7F7F8;
+        }
+
+        th {
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 500;
+            color: #6B6B6B;
+            font-size: 13px;
+        }
+
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ECECF1;
+            font-size: 14px;
+            color: #2D2D2D;
+        }
+
+        tr:hover {
+            background: #F7F7F8;
+        }
+
+        .badge {
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: #ECFDF5;
+            color: #065F46;
+        }
+
+        .badge-warning {
+            background: #FFFBEB;
+            color: #92400E;
+        }
+
+        .badge-danger {
+            background: #FEF2F2;
+            color: #991B1B;
+        }
+
+        .badge-info {
+            background: #EFF6FF;
+            color: #1E40AF;
+        }
+
+        .feedback-bar {
+            display: flex;
+            height: 28px;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .feedback-positive {
+            background: #059669;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .feedback-negative {
+            background: #DC2626;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 32px;
+            color: #6B6B6B;
+        }
+
+        .spinner {
+            border: 3px solid #ECECF1;
+            border-top: 3px solid #940032;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 32px;
+            color: #ACACAC;
+        }
+
+        .refresh-btn {
+            position: fixed;
+            bottom: 28px;
+            right: 28px;
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: #940032;
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(148, 0, 50, 0.3);
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .refresh-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke: white;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .refresh-btn:hover {
+            background: #7a0028;
+            transform: rotate(90deg);
+        }
+
+        .confidence-bar {
+            width: 100%;
+            height: 6px;
+            background: #ECECF1;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+
+        .confidence-high {
+            background: #059669;
+        }
+
+        .confidence-medium {
+            background: #D97706;
+        }
+
+        .confidence-low {
+            background: #DC2626;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-title">
+                <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <h1>Analytics Dashboard</h1>
+            </div>
+            <div class="nav-buttons">
+                <a href="dashboard.html" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                    กลับหน้าแดชบอร์ด
+                </a>
+                <button onclick="loadAllData()" class="btn btn-primary">
+                    <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    รีเฟรช
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="summary-grid" id="summaryGrid">
+            <div class="loading">
+                <div class="spinner"></div>
+                กำลังโหลดข้อมูล...
+            </div>
+        </div>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Feedback Statistics -->
+            <div class="card">
+                <div class="card-title">
+                    <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                    <span>สถิติ Feedback</span>
+                </div>
+                <div id="feedbackStats">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        กำลังโหลด...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Statistics -->
+            <div class="card">
+                <div class="card-title">
+                    <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    <span>สถิติรายวัน (7 วันล่าสุด)</span>
+                </div>
+                <div id="dailyStats">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        กำลังโหลด...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Questions -->
+            <div class="card card-full">
+                <div class="card-title">
+                    <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    <span>คำถามยอดนิยม Top 10</span>
+                </div>
+                <div id="topQuestions">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        กำลังโหลด...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Low Confidence Queries -->
+            <div class="card card-full">
+                <div class="card-title">
+                    <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>คำถามที่มีความมั่นใจต่ำ (&lt;35%)</span>
+                </div>
+                <div id="lowConfidence">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        กำลังโหลด...
+                    </div>
+                </div>
+            </div>
+
+            <!-- FAQ Performance -->
+            <div class="card card-full">
+                <div class="card-title">
+                    <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    <span>FAQ ที่ใช้มากที่สุด Top 20</span>
+                </div>
+                <div id="faqPerformance">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        กำลังโหลด...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="refresh-btn" onclick="loadAllData()" title="รีเฟรชข้อมูล">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    </button>
+
+    <script>
+        const API_URL = '../backend/analytics_api.php';
+
+        // XSS protection helper
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+        // Get auth token
+        function getToken() {
+            const token = localStorage.getItem('admin_token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return null;
+            }
+            return token;
+        }
+
+        function getAuthHeaders() {
+            const token = getToken();
+            return token ? { 'Authorization': 'Bearer ' + token } : {};
+        }
+        // Load all data on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadAllData();
+        });
+
+        async function loadAllData() {
+            await Promise.all([
+                loadSummary(),
+                loadFeedbackStats(),
+                loadTopQuestions(),
+                loadLowConfidence(),
+                loadDailyStats(),
+                loadFaqPerformance()
+            ]);
+        }
+
+        async function loadSummary() {
+            try {
+                const response = await fetch(`${API_URL}?action=summary`, { headers: getAuthHeaders() });
+                const data = await response.json();
+
+                if (data.success) {
+                    const summary = data.summary;
+                    document.getElementById('summaryGrid').innerHTML = `
+                        <div class="summary-card">
+                            <div class="icon-wrap" style="background: #EFF6FF; color: #1E40AF;">
+                                <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            </div>
+                            <div class="label">จำนวนการสนทนาทั้งหมด</div>
+                            <div class="value">${summary.total_chats.toLocaleString()}</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="icon-wrap" style="background: #ECFDF5; color: #065F46;">
+                                <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            </div>
+                            <div class="label">Feedback ทั้งหมด</div>
+                            <div class="value">${summary.total_feedback.toLocaleString()}</div>
+                            <div class="sub-value">+${summary.positive_feedback} / -${summary.negative_feedback}</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="icon-wrap" style="background: #FDF2F8; color: #9D174D;">
+                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                            </div>
+                            <div class="label">ความมั่นใจเฉลี่ย</div>
+                            <div class="value">${summary.avg_confidence}%</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="icon-wrap" style="background: #FFFBEB; color: #92400E;">
+                                <svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                            </div>
+                            <div class="label">ความพึงพอใจ</div>
+                            <div class="value">${summary.satisfaction_rate}%</div>
+                            <div class="sub-value">จาก ${summary.total_feedback} Feedback</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="icon-wrap" style="background: #F0FDF4; color: #166534;">
+                                <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                            </div>
+                            <div class="label">FAQ ทั้งหมด</div>
+                            <div class="value">${summary.total_faqs.toLocaleString()}</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading summary:', error);
+                document.getElementById('summaryGrid').innerHTML = '<div class="no-data">ไม่สามารถโหลดข้อมูลได้</div>';
+            }
+        }
+
+        async function loadFeedbackStats() {
+            try {
+                const response = await fetch(`${API_URL}?action=feedback_stats`, { headers: getAuthHeaders() });
+                const data = await response.json();
+
+                if (data.success && data.stats.length > 0) {
+                    const positive = data.stats.find(s => s.feedback_type === 'positive') || {count: 0, percentage: 0};
+                    const negative = data.stats.find(s => s.feedback_type === 'negative') || {count: 0, percentage: 0};
+
+                    document.getElementById('feedbackStats').innerHTML = `
+                        <div style="margin-bottom: 12px; font-size: 14px;">
+                            <strong>ทั้งหมด: ${data.total} Feedback</strong>
+                        </div>
+                        <div class="feedback-bar">
+                            <div class="feedback-positive" style="width: ${positive.percentage}%">
+                                + ${positive.count} (${positive.percentage}%)
+                            </div>
+                            <div class="feedback-negative" style="width: ${negative.percentage}%">
+                                - ${negative.count} (${negative.percentage}%)
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; font-size: 13px; color: #6B6B6B;">
+                            <div>Positive: ${positive.count} ครั้ง (${positive.percentage}%)</div>
+                            <div>Negative: ${negative.count} ครั้ง (${negative.percentage}%)</div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('feedbackStats').innerHTML = '<div class="no-data">ยังไม่มี Feedback</div>';
+                }
+            } catch (error) {
+                console.error('Error loading feedback stats:', error);
+                document.getElementById('feedbackStats').innerHTML = '<div class="no-data">ไม่สามารถโหลดข้อมูลได้</div>';
+            }
+        }
+
+        async function loadTopQuestions() {
+            try {
+                const response = await fetch(`${API_URL}?action=top_questions`, { headers: getAuthHeaders() });
+                const data = await response.json();
+
+                if (data.success && data.questions.length > 0) {
+                    let html = '<table><thead><tr><th>#</th><th>คำถาม</th><th>จำนวนครั้ง</th><th>ความมั่นใจเฉลี่ย</th><th>ถามล่าสุด</th></tr></thead><tbody>';
+                    
+                    data.questions.forEach((q, index) => {
+                        const confidence = parseFloat(q.avg_confidence).toFixed(2);
+                        const confidenceClass = confidence >= 70 ? 'confidence-high' : (confidence >= 35 ? 'confidence-medium' : 'confidence-low');
+                        const date = new Date(q.last_asked).toLocaleString('th-TH');
+                        
+                        html += `
+                            <tr>
+                                <td><strong>${index + 1}</strong></td>
+                                <td>${escapeHtml(q.user_message)}</td>
+                                <td><span class="badge badge-info">${q.ask_count} ครั้ง</span></td>
+                                <td>
+                                    <div>${confidence}%</div>
+                                    <div class="confidence-bar">
+                                        <div class="confidence-fill ${confidenceClass}" style="width: ${confidence}%"></div>
+                                    </div>
+                                </td>
+                                <td>${date}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += '</tbody></table>';
+                    document.getElementById('topQuestions').innerHTML = html;
+                } else {
+                    document.getElementById('topQuestions').innerHTML = '<div class="no-data">ยังไม่มีข้อมูลคำถาม</div>';
+                }
+            } catch (error) {
+                console.error('Error loading top questions:', error);
+                document.getElementById('topQuestions').innerHTML = '<div class="no-data">ไม่สามารถโหลดข้อมูลได้</div>';
+            }
+        }
+
+        async function loadLowConfidence() {
+            try {
+                const response = await fetch(`${API_URL}?action=low_confidence`, { headers: getAuthHeaders() });
+                const data = await response.json();
+
+                if (data.success && data.queries.length > 0) {
+                    let html = '<table><thead><tr><th>คำถาม</th><th>ความมั่นใจ</th><th>คำตอบที่ให้</th><th>วันที่</th></tr></thead><tbody>';
+                    
+                    data.queries.forEach(q => {
+                        const confidence = parseFloat(q.confidence_score).toFixed(2);
+                        const date = new Date(q.created_at).toLocaleString('th-TH');
+                        const responsePreview = q.bot_response.substring(0, 100) + (q.bot_response.length > 100 ? '...' : '');
+                        
+                        html += `
+                            <tr>
+                                <td><strong>${escapeHtml(q.user_message)}</strong></td>
+                                <td>
+                                    <span class="badge badge-danger">${confidence}%</span>
+                                    <div class="confidence-bar" style="margin-top: 5px;">
+                                        <div class="confidence-fill confidence-low" style="width: ${confidence}%"></div>
+                                    </div>
+                                </td>
+                                <td style="font-size: 12px; color: #6b7280;">${escapeHtml(responsePreview)}</td>
+                                <td style="font-size: 12px;">${date}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += '</tbody></table>';
+                    document.getElementById('lowConfidence').innerHTML = html;
+                } else {
+                    document.getElementById('lowConfidence').innerHTML = '<div class="no-data">ไม่มีคำถามที่ความมั่นใจต่ำ</div>';
+                }
+            } catch (error) {
+                console.error('Error loading low confidence:', error);
+                document.getElementById('lowConfidence').innerHTML = '<div class="no-data">ไม่สามารถโหลดข้อมูลได้</div>';
+            }
+        }
+
+        async function loadDailyStats() {
+            try {
+                const response = await fetch(`${API_URL}?action=response_time`, { headers: getAuthHeaders() });
+                const data = await response.json();
+
+                if (data.success && data.daily_stats.length > 0) {
+                    let html = '<table><thead><tr><th>วันที่</th><th>จำนวนคำถาม</th><th>ความมั่นใจเฉลี่ย</th></tr></thead><tbody>';
+                    
+                    data.daily_stats.forEach(stat => {
+                        const date = new Date(stat.date).toLocaleDateString('th-TH');
+                        const confidence = parseFloat(stat.avg_confidence).toFixed(2);
+                        const confidenceClass = confidence >= 70 ? 'badge-success' : (confidence >= 35 ? 'badge-warning' : 'badge-danger');
+                        
+                        html += `
+                            <tr>
+                                <td><strong>${date}</strong></td>
+                                <td><span class="badge badge-info">${stat.total_queries} คำถาม</span></td>
+                                <td><span class="badge ${confidenceClass}">${confidence}%</span></td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += '</tbody></table>';
+                    document.getElementById('dailyStats').innerHTML = html;
+                } else {
+                    document.getElementById('dailyStats').innerHTML = '<div class="no-data">ยังไม่มีข้อมูล</div>';
+                }
+            } catch (error) {
+                console.error('Error loading daily stats:', error);
+                document.getElementById('dailyStats').innerHTML = '<div class="no-data">ไม่สามารถโหลดข้อมูลได้</div>';
+            }
+        }
+
+        async function loadFaqPerformance() {
+            try {
+                const response = await fetch(`${API_URL}?action=faq_performance`, { headers: getAuthHeaders() });
+                const data = await response.json();
+
+                if (data.success && data.faqs.length > 0) {
+                    let html = '<table><thead><tr><th>#</th><th>คำถาม FAQ</th><th>หมวดหมู่</th><th>ใช้งาน</th><th>ความมั่นใจ</th><th>+/-</th><th>ใช้ล่าสุด</th></tr></thead><tbody>';
+                    
+                    data.faqs.forEach((faq, index) => {
+                        const confidence = parseFloat(faq.avg_confidence || 0).toFixed(2);
+                        const confidenceClass = confidence >= 70 ? 'badge-success' : (confidence >= 35 ? 'badge-warning' : 'badge-danger');
+                        const date = faq.last_used ? new Date(faq.last_used).toLocaleDateString('th-TH') : '-';
+                        const positive = parseInt(faq.positive_feedback || 0);
+                        const negative = parseInt(faq.negative_feedback || 0);
+                        
+                        html += `
+                            <tr>
+                                <td><strong>${index + 1}</strong></td>
+                                <td>${escapeHtml(faq.question)}</td>
+                                <td><span class="badge badge-info">${escapeHtml(faq.category)}</span></td>
+                                <td><span class="badge badge-success">${faq.usage_count} ครั้ง</span></td>
+                                <td><span class="badge ${confidenceClass}">${confidence}%</span></td>
+                                <td>
+                                    <span style="color: #059669;">+${positive}</span> / 
+                                    <span style="color: #DC2626;">-${negative}</span>
+                                </td>
+                                <td style="font-size: 12px;">${date}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    html += '</tbody></table>';
+                    document.getElementById('faqPerformance').innerHTML = html;
+                } else {
+                    document.getElementById('faqPerformance').innerHTML = '<div class="no-data">ยังไม่มีข้อมูลการใช้งาน FAQ</div>';
+                }
+            } catch (error) {
+                console.error('Error loading FAQ performance:', error);
+                document.getElementById('faqPerformance').innerHTML = '<div class="no-data">ไม่สามารถโหลดข้อมูลได้</div>';
+            }
+        }
+    </script>
+</body>
+</html>
